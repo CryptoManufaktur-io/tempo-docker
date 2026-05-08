@@ -57,6 +57,9 @@ services:
       - --ws.origins=*
       - --metrics
       - "0.0.0.0:${METRICS_PORT:-9000}"
+    ports:
+      - ${P2P_PORT:-30303}:30303/tcp
+      - ${P2P_PORT:-30303}:30303/udp
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/${RPC_PORT:-8545}'"]
       interval: 30s
