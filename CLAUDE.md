@@ -35,4 +35,3 @@ cp default.env .env && ./ethd update --debug --non-interactive
 
 - Tempo docs: https://docs.tempo.xyz/guide/node/rpc
 - Upstream image: https://github.com/tempoxyz/tempo (releases on GHCR)
-- Sibling repo for the cmf chainlink RPC family conventions: `~/work/0g-docker`
