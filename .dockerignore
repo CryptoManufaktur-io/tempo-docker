@@ -1,6 +1,7 @@
 .git
 .github
 data/
+tempo/
 .env
 *.bak
 *.partial

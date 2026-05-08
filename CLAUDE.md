@@ -31,8 +31,8 @@ cp default.env .env && ./ethd update --debug --non-interactive
 - Header vars: `__project_name`, `__app_name`, `__sample_service`
 - Functions: `version()`, `__prep_conffiles()`, `start()`, `__env_migrate()`
 
-## Production References
+## References
 
-- `sei-docker` — Cosmos/Tendermint with cosmovisor
-- `optimism-docker` — L2 rollup, multi-service
-- `polygon-docker` — Multi-client EVM
+- Tempo docs: https://docs.tempo.xyz/guide/node/rpc
+- Upstream image: https://github.com/tempoxyz/tempo (releases on GHCR)
+- Sibling repo for the cmf chainlink RPC family conventions: `~/work/0g-docker`

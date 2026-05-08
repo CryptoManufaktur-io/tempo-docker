@@ -4,14 +4,6 @@
 # Tempo Mainnet RPC node (Reth-based, EVM-compatible L1).
 # Image: ghcr.io/tempoxyz/tempo:${NODE_DOCKER_TAG}
 # Source: https://docs.tempo.xyz/guide/node/rpc
-#
-# First-time bootstrap (snapshot download — populates DATA_DIR):
-#   ./tempod up download
-# or
-#   docker compose --profile init run --rm download
-#
-# Then start the node:
-#   ./tempod up -d
 # =============================================================================
 
 services:
@@ -29,14 +21,14 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "10m"
+        max-size: "100m"
         max-file: "3"
 
   tempo:
     image: ${NODE_DOCKER_REPO}:${NODE_DOCKER_TAG}
     container_name: ${PROJECT_NAME}-node
     restart: unless-stopped
-    stop_grace_period: 5m
+    stop_grace_period: 10m
     volumes:
       - ${DATA_DIR}:/root/.local/share/reth/tempo
     environment:
@@ -51,20 +43,28 @@ services:
       - --http.addr
       - "0.0.0.0"
       - --http.port
-      - "8545"
+      - "${RPC_PORT:-8545}"
       - --http.api
       - eth,net,web3,txpool,trace
+      - --http.corsdomain=*
       - --ws
       - --ws.addr
       - "0.0.0.0"
       - --ws.port
-      - "8546"
+      - "${WS_PORT:-8546}"
       - --ws.api
       - eth,net,web3,txpool,trace
+      - --ws.origins=*
       - --metrics
-      - "0.0.0.0:9000"
+      - "0.0.0.0:${METRICS_PORT:-9000}"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/${RPC_PORT:-8545}'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
     logging:
       driver: json-file
       options:
-        max-size: "10m"
+        max-size: "100m"
         max-file: "3"

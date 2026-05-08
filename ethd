@@ -42,22 +42,12 @@ version() {
 
 
 __prep_conffiles() {
-# Prepare any config files before starting services
-# Example: Copy default configs, set permissions, etc.
   return
 }
 
 
 start() {
-# Start the node - customize if you need screen-based startup
-# Default: Simple docker compose up
   __docompose up -d --remove-orphans "$@"
-# Screen-based example for long init:
-#   if screen -list | grep -q "\.${__project_name%%[[:space:]]*}-init"; then
-#     echo "Init screen session already running"
-#     return 0
-#   fi
-#   screen -dmS "${__project_name%%[[:space:]]*}-init" __docompose up -d --remove-orphans "$@"
 }
 
 

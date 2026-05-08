@@ -2,18 +2,22 @@
 
 Docker deployment for a [Tempo](https://docs.tempo.xyz/) Mainnet RPC node. Tempo is an EVM-compatible Layer 1 built on Reth; this repo wraps the upstream `ghcr.io/tempoxyz/tempo` image with the standard `ethd`/`tempod` lifecycle.
 
+- **Network:** Tempo Mainnet
+- **Chain ID:** `4217` (`0x1079`)
+- **RPC mode:** follow (fetches block ordering from a trusted upstream and re-executes locally)
+
 This is tempo-docker v1.0.0
 
 ## Quick Start
 
 ```bash
 # Clone and enter directory
-git clone https://github.com/your-org/tempo-docker.git
+git clone https://github.com/CryptoManufaktur-io/tempo-docker.git
 cd tempo-docker
 
 # Configure
 cp default.env .env
-vim .env   # set DOMAIN, RPC_HOST, WS_HOST, MONIKER as needed
+vim .env   # set DOMAIN, RPC_HOST, WS_HOST as needed
 
 # One-time bootstrap: download the archive snapshot (this populates DATA_DIR)
 ./tempod up download
@@ -51,7 +55,7 @@ The node runs in **follow mode**: it pulls block ordering from the trusted upstr
 | `./tempod down` | Stop the node |
 | `./tempod restart` | Restart the node |
 | `./tempod logs -f` | Follow logs (Ctrl+C to exit) |
-| `./tempod logs -f node` | Follow logs for specific service |
+| `./tempod logs -f tempo` | Follow logs for the tempo node |
 | `./tempod update` | Update images and configuration |
 | `./tempod check-sync` | Check sync status against public RPC |
 | `./tempod version` | Show client versions |
@@ -80,11 +84,11 @@ Edit `.env` to customize your deployment. Key variables:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `COMPOSE_FILE` | Compose files to use (colon-separated) | `tempo.yml` |
-| `PROJECT_NAME` | Container name prefix | `project` |
-| `NETWORK` | Network to connect to | `mainnet` |
-| `NODE_DOCKER_REPO` | Docker image repository | `example/node` |
-| `NODE_DOCKER_TAG` | Docker image tag | `latest` |
-| `DATA_DIR` | Data directory path | `./data` |
+| `PROJECT_NAME` | Container name prefix | `tempo` |
+| `NETWORK` | Network (mainnet only — chain id 4217) | `mainnet` |
+| `NODE_DOCKER_REPO` | Docker image repository | `ghcr.io/tempoxyz/tempo` |
+| `NODE_DOCKER_TAG` | Docker image tag | `1.6.0` |
+| `DATA_DIR` | Data directory path | `./tempo` |
 | `RPC_PORT` | HTTP RPC port | `8545` |
 | `WS_PORT` | WebSocket port | `8546` |
 | `LOG_LEVEL` | Logging verbosity | `info` |
@@ -117,9 +121,9 @@ For secure web proxy with Traefik:
    ```bash
    DOCKER_EXT_NETWORK=traefik_default
    DOMAIN=example.com
-   RPC_HOST=mynode
+   RPC_HOST=tempo
+   WS_HOST=tempows
    ```
-3. Uncomment Traefik labels in `tempo.yml`
 
 ## Checking Sync Status
 
@@ -128,7 +132,7 @@ For secure web proxy with Traefik:
 ./tempod check-sync --public-rpc https://rpc.example.com
 
 # With container execution
-./tempod check-sync --compose-service node --public-rpc https://rpc.example.com
+./tempod check-sync --compose-service tempo --public-rpc https://rpc.example.com
 
 # Custom thresholds
 ./tempod check-sync --public-rpc https://rpc.example.com --block-lag 10
@@ -140,87 +144,19 @@ Exit codes:
 - `2` - Diverged (possible fork)
 - `3-7` - Various errors
 
-## Customization Guide
-
-When using this template for a new protocol:
-
-### 1. Rename Files and Core Vars
-
-```bash
-# Rename compose file
-mv tempo.yml myprotocol.yml
-
-# Then edit default.env:
-# COMPOSE_FILE=myprotocol.yml
-# PROJECT_NAME=myprotocol
-```
-
-### 2. Create Protocol Alias Script
-
-```bash
-ln -s ethd myprotocold
-```
-
-### 3. Update ethd
-
-Edit the header variables:
-
-```bash
-__project_name="MyProtocol Docker"
-__app_name="MyProtocol node"
-__sample_service="myprotocol"
-```
-
-Also customize these functions in `ethd`:
-
-- **`version()`** — Add commands to report client versions
-- **`__prep_conffiles()`** — Config file setup before start
-- **`start()`** — Modify if you need screen-based startup for long init
-- **`__env_migrate()`** — Add `__old_vars`/`__new_vars` for variable renames
-
-### 4. Configure Services
-
-Edit your renamed compose file:
-- Update service name from `node` to protocol-specific (e.g., `op-node`)
-- Set actual Docker image, command, and environment
-- Configure port mappings and volume mounts
-- Uncomment and customize health checks
-- Add additional services if needed (e.g., execution + consensus layer)
-
-### 5. Implement Sync Check
-
-Edit `scripts/check_sync.sh` and uncomment the appropriate variant:
-
-| Protocol Type | Function | RPC Pattern |
-|--------------|----------|-------------|
-| EVM (geth, reth, op-geth) | `check_eth_sync()` | JSON-RPC `eth_syncing`, `eth_blockNumber` |
-| Cosmos/Tendermint | `check_tendermint_sync()` | REST `/status` endpoint |
-| Custom | Implement your own | Follow exit code conventions below |
-
-### 6. Configure default.env
-
-Update protocol-specific variables and add new ones as needed. Keep `ENV_VERSION` updated when adding or renaming variables.
-
 ## Directory Structure
 
 ```
 .
 ├── ethd                    # Canonical CLI script
-├── <protocol>d             # Optional symlink alias to ethd
+├── tempod                  # Symlink alias to ethd
 ├── scripts/
-│   └── check_sync.sh       # Sync checker
-├── node/                   # Dockerfile templates
-│   ├── Dockerfile.binary   # For pre-built binaries
-│   ├── Dockerfile.source   # For source builds
-│   └── entrypoint.sh       # Entrypoint template
+│   └── check_sync.sh       # Sync checker (eth_syncing + eth_blockNumber)
 ├── default.env             # Default configuration
-├── tempo.yml             # Main compose file (rename to <protocol>.yml)
-├── ext-network.yml         # External network overlay
-├── rpc-shared.yml          # Local RPC exposure
-├── .env                    # Your configuration (git-ignored)
-├── .gitignore              # Git ignore rules
-├── .pre-commit-config.yaml # Pre-commit hooks
-└── data/                   # Node data (git-ignored)
+├── tempo.yml               # Main compose file (download + tempo services)
+├── rpc-shared.yml          # Localhost port exposure overlay
+├── ext-network.yml         # Traefik / Prometheus overlay
+└── tempo/                  # Node data (bind-mounted, git-ignored)
 ```
 
 ## Troubleshooting
@@ -263,7 +199,7 @@ docker system prune -a
 ./tempod logs --tail 100
 
 # Follow specific service
-./tempod logs -f node
+./tempod logs -f tempo
 
 # Save logs to file
 ./tempod logs > node.log 2>&1

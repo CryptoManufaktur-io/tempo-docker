@@ -115,15 +115,6 @@ resolve_container() {
   fi
 }
 
-http_get() {
-  local url="$1"
-  if [[ -n "$CONTAINER" ]]; then
-    docker exec "$CONTAINER" curl -sS "$url"
-  else
-    curl -sS "$url"
-  fi
-}
-
 http_post() {
   local url="$1"
   local data="$2"
