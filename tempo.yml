@@ -1,0 +1,70 @@
+# =============================================================================
+# Tempo Docker - Primary Compose File
+# =============================================================================
+# Tempo Mainnet RPC node (Reth-based, EVM-compatible L1).
+# Image: ghcr.io/tempoxyz/tempo:${NODE_DOCKER_TAG}
+# Source: https://docs.tempo.xyz/guide/node/rpc
+#
+# First-time bootstrap (snapshot download — populates DATA_DIR):
+#   ./tempod up download
+# or
+#   docker compose --profile init run --rm download
+#
+# Then start the node:
+#   ./tempod up -d
+# =============================================================================
+
+services:
+  download:
+    image: ${NODE_DOCKER_REPO}:${NODE_DOCKER_TAG}
+    container_name: ${PROJECT_NAME}-download
+    profiles: [init]
+    volumes:
+      - ${DATA_DIR}:/root/.local/share/reth/tempo
+    command:
+      - download
+      - --archive
+      - --datadir
+      - /root/.local/share/reth/tempo
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  tempo:
+    image: ${NODE_DOCKER_REPO}:${NODE_DOCKER_TAG}
+    container_name: ${PROJECT_NAME}-node
+    restart: unless-stopped
+    stop_grace_period: 5m
+    volumes:
+      - ${DATA_DIR}:/root/.local/share/reth/tempo
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NETWORK=${NETWORK:-mainnet}
+    command:
+      - node
+      - --datadir
+      - /root/.local/share/reth/tempo
+      - --follow
+      - --http
+      - --http.addr
+      - "0.0.0.0"
+      - --http.port
+      - "8545"
+      - --http.api
+      - eth,net,web3,txpool,trace
+      - --ws
+      - --ws.addr
+      - "0.0.0.0"
+      - --ws.port
+      - "8546"
+      - --ws.api
+      - eth,net,web3,txpool,trace
+      - --metrics
+      - "0.0.0.0:9000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

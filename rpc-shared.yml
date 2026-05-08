@@ -1,0 +1,16 @@
+# =============================================================================
+# RPC Shared - Expose RPC, WS, metrics, and P2P ports
+# =============================================================================
+# Add :rpc-shared.yml to COMPOSE_FILE in .env to use this overlay.
+# RPC/WS/metrics are bound to 127.0.0.1 (Traefik handles public ingress).
+# P2P (TCP+UDP) is published publicly so Reth can peer.
+# =============================================================================
+
+services:
+  tempo:
+    ports:
+      - 127.0.0.1:${RPC_PORT:-8545}:8545
+      - 127.0.0.1:${WS_PORT:-8546}:8546
+      - 127.0.0.1:${METRICS_PORT:-9000}:9000
+      - ${P2P_PORT:-30303}:30303
+      - ${P2P_PORT:-30303}:30303/udp

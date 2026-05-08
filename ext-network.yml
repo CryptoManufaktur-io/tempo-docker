@@ -1,0 +1,38 @@
+# =============================================================================
+# Ext Network Overlay - Traefik ingress + Prometheus scrape labels
+# =============================================================================
+# Add :ext-network.yml to COMPOSE_FILE in .env to expose tempo via Traefik.
+# Pattern matches 0g-docker / cmf chainlink RPC family conventions.
+# =============================================================================
+
+services:
+  tempo:
+    networks:
+      - default
+      - ext-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${DOCKER_EXT_NETWORK}
+      # HTTP RPC
+      - traefik.http.routers.${RPC_HOST}.entrypoints=websecure
+      - traefik.http.routers.${RPC_HOST}.rule=Host(`${RPC_HOST}.${DOMAIN}`)
+      - traefik.http.routers.${RPC_HOST}.tls.certresolver=letsencrypt
+      - traefik.http.routers.${RPC_HOST}.service=${RPC_LB}
+      - traefik.http.services.${RPC_LB}.loadbalancer.server.port=8545
+      # WebSocket RPC
+      - traefik.http.routers.${WS_HOST}.entrypoints=websecure
+      - traefik.http.routers.${WS_HOST}.rule=Host(`${WS_HOST}.${DOMAIN}`)
+      - traefik.http.routers.${WS_HOST}.tls.certresolver=letsencrypt
+      - traefik.http.routers.${WS_HOST}.service=${WS_LB}
+      - traefik.http.services.${WS_LB}.loadbalancer.server.port=8546
+      # Prometheus scrape
+      - metrics.scrape=true
+      - metrics.path=/metrics
+      - metrics.port=9000
+      - metrics.instance=tempo
+      - metrics.network=${NETWORK:-mainnet}
+
+networks:
+  ext-network:
+    external: true
+    name: ${DOCKER_EXT_NETWORK}

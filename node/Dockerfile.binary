@@ -1,0 +1,77 @@
+# =============================================================================
+# Dockerfile.binary - Template for pre-built binary images
+# =============================================================================
+# Use this template when pulling pre-built binaries from releases.
+# Customize for your protocol's binary distribution.
+# =============================================================================
+
+# Multi-stage build: First stage downloads and extracts binaries
+FROM debian:bookworm-slim AS builder
+
+ARG TARGETARCH
+ARG VERSION=latest
+
+# Install download tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    wget \
+    jq \
+    tar \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Download binary - customize URL pattern for your protocol
+# Example patterns:
+# GitHub releases: https://github.com/ORG/REPO/releases/download/v${VERSION}/binary-${VERSION}-linux-${TARGETARCH}.tar.gz
+# Direct URL: https://releases.example.com/node-${VERSION}-linux-${TARGETARCH}.tar.gz
+#
+# RUN curl -fsSL "https://example.com/releases/v${VERSION}/node-linux-${TARGETARCH}.tar.gz" \
+#     | tar -xzf - && \
+#     chmod +x node && \
+#     mv node /usr/local/bin/
+
+# Placeholder - replace with actual download
+RUN echo "Replace this with actual binary download commands"
+
+# =============================================================================
+# Runtime stage
+# =============================================================================
+FROM debian:bookworm-slim
+
+ARG USER=node
+ARG UID=10001
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --shell "/sbin/nologin" \
+    --uid "${UID}" \
+    "${USER}"
+
+# Create data directory
+RUN mkdir -p /data && chown -R ${USER}:${USER} /data
+VOLUME /data
+
+# Copy binary from builder
+# COPY --from=builder /usr/local/bin/node /usr/local/bin/node
+
+# Copy entrypoint script (avoid COPY --chmod for broader compatibility)
+COPY ./entrypoint.sh /usr/local/bin/
+RUN chmod 755 /usr/local/bin/entrypoint.sh
+
+USER ${USER}
+WORKDIR /data
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Default command - override in docker-compose
+# CMD ["node", "--data-dir=/data"]
