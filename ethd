@@ -46,7 +46,60 @@ __prep_conffiles() {
 }
 
 
+__get_env_or_default() {
+  local __var="$1"
+  local __out="$2"
+  local __value=""
+  if [ -f "${__env_file}" ]; then
+    __get_value_from_env "${__var}" "${__env_file}" "__value"
+  fi
+  if [ -z "${__value}" ]; then
+    __get_value_from_env "${__var}" "default.env" "__value"
+  fi
+  printf -v "${__out}" '%s' "${__value}"
+}
+
+
+__should_bootstrap_snapshot() {
+  local __arg
+  for __arg in "$@"; do
+    case "${__arg}" in
+      -*) ;;
+      tempo) ;;
+      *)
+        if [ "${__arg}" != "${__sample_service}" ]; then
+          return 1
+        fi
+        ;;
+    esac
+  done
+  return 0
+}
+
+
+__bootstrap_snapshot_if_needed() {
+  local __data_dir __skip_bootstrap
+  __should_bootstrap_snapshot "$@" || return 0
+  __get_env_or_default "DATA_DIR" "__data_dir"
+  __get_env_or_default "SKIP_SNAPSHOT_BOOTSTRAP" "__skip_bootstrap"
+
+  if [[ "${__skip_bootstrap}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
+    echo "Skipping Tempo snapshot bootstrap because SKIP_SNAPSHOT_BOOTSTRAP=${__skip_bootstrap}"
+    return 0
+  fi
+  if [ -f "${__data_dir}/.snapshot-restored" ]; then
+    return 0
+  fi
+
+  echo "Tempo snapshot sentinel not found; running download profile before start"
+  __docompose --profile init up download
+  ${__as_owner} mkdir -p "${__data_dir}"
+  ${__as_owner} touch "${__data_dir}/.snapshot-restored"
+}
+
+
 start() {
+  __bootstrap_snapshot_if_needed "$@"
   __docompose up -d --remove-orphans "$@"
 }
 
@@ -969,7 +1022,20 @@ logs() {
 
 
 check_sync() {
-  ./scripts/check_sync.sh "$@"
+  local __has_target=0
+  local __arg
+  for __arg in "$@"; do
+    case "${__arg}" in
+      --container|--compose-service|--local-rpc)
+        __has_target=1
+        ;;
+    esac
+  done
+  if [ "${__has_target}" -eq 1 ]; then
+    ./scripts/check_sync.sh "$@"
+  else
+    ./scripts/check_sync.sh --compose-service "${__sample_service}" "$@"
+  fi
 }
 
 
