@@ -17,7 +17,7 @@ cd tempo-docker
 
 # Configure
 cp default.env .env
-vim .env   # set DOMAIN, RPC_HOST, WS_HOST as needed
+vim .env   # set DOMAIN, RPC_HOST, and WS_HOST as needed
 
 # One-time bootstrap: download the archive snapshot (this populates DATA_DIR)
 ./tempod up download
@@ -28,17 +28,17 @@ vim .env   # set DOMAIN, RPC_HOST, WS_HOST as needed
 # Tail logs
 ./tempod logs -f tempo
 
-# Check sync against a trusted public Tempo RPC
-./tempod check-sync --compose-service tempo --public-rpc <trusted-tempo-rpc>
+# Check sync against the default public Tempo RPC
+./tempod check-sync
 ```
 
-The node runs in **follow mode**: it pulls block ordering from the trusted upstream RPC and re-executes every transaction locally, validating each block.
+The node runs in **follow mode**: it pulls block ordering from the trusted upstream RPC and re-executes every transaction locally, validating each block. The repo pins follow mode to Tempo's upstream default for mainnet.
 
 ## Prerequisites
 
 - Docker Engine 23+ with Compose V2
 - Git
-- 50+ GiB free disk space (varies by protocol)
+- 1000 GB minimum / 2000 GB recommended NVMe for production RPC nodes
 
 ### Installing Docker
 
@@ -86,11 +86,14 @@ Edit `.env` to customize your deployment. Key variables:
 | `COMPOSE_FILE` | Compose files to use (colon-separated) | `tempo.yml` |
 | `PROJECT_NAME` | Container name prefix | `tempo` |
 | `NETWORK` | Network (mainnet only — chain id 4217) | `mainnet` |
+| `CHAIN_ID` | Decimal chain ID | `4217` |
 | `NODE_DOCKER_REPO` | Docker image repository | `ghcr.io/tempoxyz/tempo` |
 | `NODE_DOCKER_TAG` | Docker image tag | `1.6.0` |
 | `DATA_DIR` | Data directory path | `./tempo` |
+| `SKIP_SNAPSHOT_BOOTSTRAP` | Skip automatic pre-start snapshot bootstrap | `false` |
 | `RPC_PORT` | HTTP RPC port | `8545` |
 | `WS_PORT` | WebSocket port | `8546` |
+| `P2P_PORT` | P2P host/container port | `30303` |
 | `LOG_LEVEL` | Logging verbosity | `info` |
 | `SCRIPT_TAG` | Pin repo to git tag | (empty = latest) |
 
@@ -128,11 +131,11 @@ For secure web proxy with Traefik:
 ## Checking Sync Status
 
 ```bash
-# Basic sync check (requires --public-rpc)
-./tempod check-sync --public-rpc https://rpc.example.com
+# Basic sync check (defaults to https://rpc.presto.tempo.xyz)
+./tempod check-sync
 
 # With container execution
-./tempod check-sync --compose-service tempo --public-rpc https://rpc.example.com
+./tempod check-sync --compose-service tempo
 
 # Custom thresholds
 ./tempod check-sync --public-rpc https://rpc.example.com --block-lag 10
@@ -191,6 +194,12 @@ newgrp docker
 # Prune unused Docker data
 docker system prune -a
 ```
+
+Tempo RPC nodes run archive mode by default. The one-time archive snapshot is much smaller than the long-term production storage requirement; size hosts for upstream RPC guidance, not only for the initial extracted snapshot.
+
+### Network Upgrades
+
+Tempo publishes required mainnet releases ahead of activation. Check the upstream release page before rollout or restart work and bump `NODE_DOCKER_TAG` once the required tag is available.
 
 ### Logs
 

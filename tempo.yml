@@ -13,11 +13,13 @@ services:
     profiles: [init]
     volumes:
       - ${DATA_DIR}:/root/.local/share/reth/tempo
+    entrypoint:
+      - /bin/bash
+      - -ec
     command:
-      - download
-      - --archive
-      - --datadir
-      - /root/.local/share/reth/tempo
+      - >-
+        tempo download --archive --datadir /root/.local/share/reth/tempo &&
+        touch /root/.local/share/reth/tempo/.snapshot-restored
     logging:
       driver: json-file
       options:
@@ -34,11 +36,12 @@ services:
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - NETWORK=${NETWORK:-mainnet}
+      - CHAIN_ID=${CHAIN_ID:-4217}
     command:
       - node
       - --datadir
       - /root/.local/share/reth/tempo
-      - --follow
+      - --follow=auto
       - --http
       - --http.addr
       - "0.0.0.0"
@@ -55,11 +58,13 @@ services:
       - --ws.api
       - eth,net,web3,txpool,trace
       - --ws.origins=*
+      - --port
+      - "${P2P_PORT:-30303}"
       - --metrics
       - "0.0.0.0:${METRICS_PORT:-9000}"
     ports:
-      - ${P2P_PORT:-30303}:30303/tcp
-      - ${P2P_PORT:-30303}:30303/udp
+      - ${P2P_PORT:-30303}:${P2P_PORT:-30303}/tcp
+      - ${P2P_PORT:-30303}:${P2P_PORT:-30303}/udp
     labels:
       - traefik.enable=true
       - traefik.docker.network=${DOCKER_EXT_NETWORK}
@@ -67,19 +72,35 @@ services:
       - traefik.http.routers.${RPC_HOST}.rule=Host(`${RPC_HOST}.${DOMAIN}`)
       - traefik.http.routers.${RPC_HOST}.tls.certresolver=letsencrypt
       - traefik.http.routers.${RPC_HOST}.service=${RPC_LB}
+      - traefik.http.routers.${RPC_HOST}lb.entrypoints=websecure
+      - traefik.http.routers.${RPC_HOST}lb.rule=Host(`${RPC_LB}.${DOMAIN}`)
+      - traefik.http.routers.${RPC_HOST}lb.tls.certresolver=letsencrypt
+      - traefik.http.routers.${RPC_HOST}lb.service=${RPC_LB}
       - traefik.http.services.${RPC_LB}.loadbalancer.server.port=${RPC_PORT:-8545}
       - traefik.http.routers.${WS_HOST}.entrypoints=websecure
       - traefik.http.routers.${WS_HOST}.rule=Host(`${WS_HOST}.${DOMAIN}`)
       - traefik.http.routers.${WS_HOST}.tls.certresolver=letsencrypt
       - traefik.http.routers.${WS_HOST}.service=${WS_LB}
+      - traefik.http.routers.${WS_HOST}lb.entrypoints=websecure
+      - traefik.http.routers.${WS_HOST}lb.rule=Host(`${WS_LB}.${DOMAIN}`)
+      - traefik.http.routers.${WS_HOST}lb.tls.certresolver=letsencrypt
+      - traefik.http.routers.${WS_HOST}lb.service=${WS_LB}
       - traefik.http.services.${WS_LB}.loadbalancer.server.port=${WS_PORT:-8546}
       - metrics.scrape=true
       - metrics.path=/metrics
       - metrics.port=${METRICS_PORT:-9000}
       - metrics.instance=tempo
       - metrics.network=${NETWORK:-mainnet}
+      - metrics.chain_id=${CHAIN_ID:-4217}
     healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/${RPC_PORT:-8545}'"]
+      test:
+        - CMD-SHELL
+        - >-
+          bash -ec 'payload="{\"jsonrpc\":\"2.0\",\"method\":\"eth_chainId\",\"params\":[],\"id\":1}";
+          exec 3<>/dev/tcp/127.0.0.1/${RPC_PORT:-8545};
+          printf "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s"
+          "$${#payload}" "$$payload" >&3;
+          grep -Eq "\"result\"[[:space:]]*:[[:space:]]*\"0x1079\"" <&3'
       interval: 30s
       timeout: 10s
       retries: 3

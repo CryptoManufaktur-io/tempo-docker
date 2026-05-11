@@ -21,9 +21,14 @@ jobs:
       - name: Test ethd help
         run: ./ethd help
 
+      - name: Test check-sync help
+        run: ./scripts/check_sync.sh --help
+
+      - name: Render compose overlays
+        run: docker compose --env-file default.env -f tempo.yml -f rpc-shared.yml -f ext-network.yml config
+
       - name: Test ethd update (debug mode)
         run: ./ethd update --debug --non-interactive
-        continue-on-error: true  # Will fail at Docker step without actual images
 
       - name: Verify .env migration worked
         run: |

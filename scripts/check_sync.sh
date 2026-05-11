@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# check_sync.sh - Node Sync Status Checker Template
+# check_sync.sh - Tempo Node Sync Status Checker
 # =============================================================================
-# This is a stub template. Customize for your protocol's sync check method.
-#
 # Exit codes:
 #   0 - Node is synced
 #   1 - Node is syncing (behind but catching up)
@@ -34,9 +32,9 @@ Options:
   --container NAME         Docker container name or ID to run curl/jq within
   --compose-service NAME   Docker Compose service name to resolve to a container
   --local-rpc URL          Local RPC URL (default: http://127.0.0.1:8545)
-  --public-rpc URL         Public/reference RPC URL (required)
+  --public-rpc URL         Public/reference RPC URL (default: https://rpc.presto.tempo.xyz)
   --block-lag N            Acceptable lag in blocks (default: 5)
-  --no-install             Do not install curl/jq inside the container
+  --no-install             Accepted for compatibility; no container installs are performed
   --env-file PATH          Path to env file to load
   -h, --help               Show this help
 
@@ -51,8 +49,9 @@ Exit Codes:
   7 - Container error
 
 Examples:
+  ./scripts/check_sync.sh
   ./scripts/check_sync.sh --public-rpc https://rpc.example.com
-  ./scripts/check_sync.sh --compose-service node --public-rpc https://rpc.example.com
+  ./scripts/check_sync.sh --compose-service tempo
 USAGE
 }
 
@@ -64,9 +63,11 @@ ENV_FILE="${ENV_FILE:-}"
 CONTAINER="${CONTAINER:-}"
 DOCKER_SERVICE="${DOCKER_SERVICE:-}"
 LOCAL_RPC="${LOCAL_RPC:-}"
-PUBLIC_RPC="${PUBLIC_RPC:-}"
+TEMPO_PUBLIC_RPC_DEFAULT="https://rpc.presto.tempo.xyz"
+TEMPO_EXPECTED_CHAIN_ID="0x1079"
+REFERENCE_RPC="$TEMPO_PUBLIC_RPC_DEFAULT"
 BLOCK_LAG_THRESHOLD="${BLOCK_LAG_THRESHOLD:-5}"
-INSTALL_TOOLS="${INSTALL_TOOLS:-1}"
+EXPECTED_CHAIN_ID="$TEMPO_EXPECTED_CHAIN_ID"
 
 # =============================================================================
 # HELPERS
@@ -115,44 +116,56 @@ resolve_container() {
   fi
 }
 
-http_post() {
+host_http_post() {
   local url="$1"
   local data="$2"
-  if [[ -n "$CONTAINER" ]]; then
-    docker exec "$CONTAINER" curl -sS -X POST -H "Content-Type: application/json" -d "$data" "$url"
+  curl -sS --fail -X POST -H "Content-Type: application/json" -d "$data" "$url"
+}
+
+container_http_post() {
+  local url="$1"
+  local data="$2"
+  local host port path
+
+  if [[ "$url" =~ ^http://([^/:]+)(:([0-9]+))?(/.*)?$ ]]; then
+    host="${BASH_REMATCH[1]}"
+    port="${BASH_REMATCH[3]:-80}"
+    path="${BASH_REMATCH[4]:-/}"
   else
-    curl -sS -X POST -H "Content-Type: application/json" -d "$data" "$url"
+    echo "Container local RPC must use http://host:port/path, got: $url" >&2
+    return 1
   fi
+
+  docker exec \
+    -e RPC_HOST="$host" \
+    -e RPC_PORT="$port" \
+    -e RPC_PATH="$path" \
+    -e RPC_PAYLOAD="$data" \
+    "$CONTAINER" \
+    bash -ec '
+      exec 3<>"/dev/tcp/${RPC_HOST}/${RPC_PORT}"
+      printf "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s" \
+        "${RPC_PATH}" "${RPC_HOST}" "${#RPC_PAYLOAD}" "${RPC_PAYLOAD}" >&3
+      cat <&3
+    ' | awk 'body { print } /^\r?$/ { body = 1 }'
+}
+
+local_http_post() {
+  local data="$1"
+  if [[ -n "$CONTAINER" ]]; then
+    container_http_post "$LOCAL_RPC" "$data"
+  else
+    host_http_post "$LOCAL_RPC" "$data"
+  fi
+}
+
+public_http_post() {
+  local data="$1"
+  host_http_post "$REFERENCE_RPC" "$data"
 }
 
 jq_eval() {
-  if [[ -n "$CONTAINER" ]]; then
-    docker exec -i "$CONTAINER" jq -r "$1"
-  else
-    jq -r "$1"
-  fi
-}
-
-install_tools_in_container() {
-  if [[ -z "$CONTAINER" || "$INSTALL_TOOLS" != "1" ]]; then
-    return 0
-  fi
-  echo "==> Ensuring curl and jq are installed inside container"
-  docker exec -u root "$CONTAINER" sh -c '
-    set -e
-    if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-      exit 0
-    fi
-    if command -v apt-get >/dev/null 2>&1; then
-      apt-get update -y >/dev/null
-      apt-get install -y curl jq ca-certificates >/dev/null
-    elif command -v apk >/dev/null 2>&1; then
-      apk add --no-cache curl jq ca-certificates >/dev/null
-    else
-      echo "Unsupported base image. No apt-get or apk found."
-      exit 1
-    fi
-  '
+  jq -r "$1"
 }
 
 # =============================================================================
@@ -165,9 +178,25 @@ install_tools_in_container() {
 check_eth_sync() {
   echo "==> Checking Tempo execution layer sync status"
 
+  local chain_id_response chain_id
+  if ! chain_id_response=$(local_http_post '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}'); then
+    echo "Failed to query local eth_chainId"
+    exit 3
+  fi
+  chain_id=$(echo "$chain_id_response" | jq_eval '.result // empty')
+  if [[ "$chain_id" != "$EXPECTED_CHAIN_ID" ]]; then
+    echo "Unexpected local chain ID: ${chain_id:-<empty>} (expected: $EXPECTED_CHAIN_ID)"
+    exit 3
+  fi
+  echo "Chain ID:     $chain_id"
+
   # Check if node reports syncing
-  local sync_status
-  sync_status=$(http_post "$LOCAL_RPC" '{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}' | jq_eval '.result')
+  local sync_response sync_status
+  if ! sync_response=$(local_http_post '{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}'); then
+    echo "Failed to query local eth_syncing"
+    exit 3
+  fi
+  sync_status=$(echo "$sync_response" | jq_eval '.result')
 
   if [[ "$sync_status" != "false" && "$sync_status" != "null" ]]; then
     local current_block highest_block
@@ -182,9 +211,17 @@ check_eth_sync() {
   fi
 
   # Get local and public block numbers
-  local local_hex public_hex
-  local_hex=$(http_post "$LOCAL_RPC" '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' | jq_eval '.result')
-  public_hex=$(http_post "$PUBLIC_RPC" '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' | jq_eval '.result')
+  local local_hex public_hex local_block_response public_block_response
+  if ! local_block_response=$(local_http_post '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'); then
+    echo "Failed to query local eth_blockNumber"
+    exit 3
+  fi
+  if ! public_block_response=$(public_http_post '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'); then
+    echo "Failed to query public eth_blockNumber"
+    exit 4
+  fi
+  local_hex=$(echo "$local_block_response" | jq_eval '.result')
+  public_hex=$(echo "$public_block_response" | jq_eval '.result')
 
   if [[ -z "$local_hex" || "$local_hex" == "null" ]]; then
     echo "Failed to get local block number"
@@ -198,10 +235,45 @@ check_eth_sync() {
   local local_block=$((16#${local_hex#0x}))
   local public_block=$((16#${public_hex#0x}))
   local lag=$((public_block - local_block))
+  local compare_block compare_hex local_hash public_hash local_hash_response public_hash_response
+
+  if (( local_block < public_block )); then
+    compare_block=$local_block
+  else
+    compare_block=$public_block
+  fi
+  compare_hex=$(printf '0x%x' "$compare_block")
+  if ! local_hash_response=$(local_http_post "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"$compare_hex\",false],\"id\":1}"); then
+    echo "Failed to query local block hash at $compare_hex"
+    exit 3
+  fi
+  if ! public_hash_response=$(public_http_post "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"$compare_hex\",false],\"id\":1}"); then
+    echo "Failed to query public block hash at $compare_hex"
+    exit 4
+  fi
+  local_hash=$(echo "$local_hash_response" | jq_eval '.result.hash // empty')
+  public_hash=$(echo "$public_hash_response" | jq_eval '.result.hash // empty')
+
+  if [[ -z "$local_hash" || "$local_hash" == "null" ]]; then
+    echo "Failed to get local block hash at $compare_hex"
+    exit 3
+  fi
+  if [[ -z "$public_hash" || "$public_hash" == "null" ]]; then
+    echo "Failed to get public block hash at $compare_hex"
+    exit 4
+  fi
 
   echo "Local block:  $local_block"
   echo "Public block: $public_block"
   echo "Lag:          $lag blocks (threshold: $BLOCK_LAG_THRESHOLD)"
+  echo "Hash check:   block $compare_block"
+
+  if [[ "$local_hash" != "$public_hash" ]]; then
+    echo "Diverged: local/public hashes differ at block $compare_block"
+    echo "Local hash:   $local_hash"
+    echo "Public hash:  $public_hash"
+    exit 2
+  fi
 
   if (( lag <= BLOCK_LAG_THRESHOLD && lag >= -BLOCK_LAG_THRESHOLD )); then
     echo "Node is synced"
@@ -224,7 +296,7 @@ check_eth_sync() {
 #
 #   local local_status public_status
 #   local_status=$(http_get "${LOCAL_RPC}/status")
-#   public_status=$(http_get "${PUBLIC_RPC}/status")
+#   public_status=$(http_get "${REFERENCE_RPC}/status")
 #
 #   local local_height public_height local_catching_up local_hash public_hash
 #   local_height=$(echo "$local_status" | jq_eval '.result.sync_info.latest_block_height // .sync_info.latest_block_height')
@@ -291,6 +363,8 @@ if [[ -n "${ENV_FILE:-}" ]]; then
 elif [[ -f ".env" ]]; then
   load_env_file ".env"
 fi
+REFERENCE_RPC="$TEMPO_PUBLIC_RPC_DEFAULT"
+EXPECTED_CHAIN_ID="$TEMPO_EXPECTED_CHAIN_ID"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -301,9 +375,9 @@ while [[ $# -gt 0 ]]; do
     --container) CONTAINER="$2"; shift 2 ;;
     --compose-service) DOCKER_SERVICE="$2"; shift 2 ;;
     --local-rpc) LOCAL_RPC="$2"; shift 2 ;;
-    --public-rpc) PUBLIC_RPC="$2"; shift 2 ;;
+    --public-rpc) REFERENCE_RPC="$2"; shift 2 ;;
     --block-lag) BLOCK_LAG_THRESHOLD="$2"; shift 2 ;;
-    --no-install) INSTALL_TOOLS="0"; shift ;;
+    --no-install) shift ;;
     --env-file) shift 2 ;;  # Already handled
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1"; usage; exit 5 ;;
@@ -316,25 +390,19 @@ done
 
 # Set defaults
 LOCAL_RPC="${LOCAL_RPC:-http://127.0.0.1:${RPC_PORT:-8545}}"
-PUBLIC_RPC="${PUBLIC_RPC:-}"
-
-# Validate required params
-if [[ -z "$PUBLIC_RPC" ]]; then
-  echo "PUBLIC_RPC is required. Use --public-rpc or set PUBLIC_RPC."
-  exit 5
-fi
+REFERENCE_RPC="${REFERENCE_RPC:-$TEMPO_PUBLIC_RPC_DEFAULT}"
 
 # Resolve container from service name
 resolve_container
 
-# Check host dependencies (if not using container)
-if [[ -z "$CONTAINER" ]]; then
-  if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
-    echo "curl and jq are required on the host when no --container is set."
-    exit 6
-  fi
-else
-  install_tools_in_container
+# Check dependencies. Public RPC and JSON parsing always run from the host.
+if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+  echo "curl and jq are required on the host."
+  exit 6
+fi
+if [[ -n "$CONTAINER" ]] && ! command -v docker >/dev/null 2>&1; then
+  echo "docker is required when --container or --compose-service is set."
+  exit 7
 fi
 
 # =============================================================================
