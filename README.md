@@ -91,6 +91,7 @@ Edit `.env` to customize your deployment. Key variables:
 | `RPC_PORT` | HTTP RPC port | `8545` |
 | `WS_PORT` | WebSocket port | `8546` |
 | `P2P_PORT` | P2P host/container port | `30303` |
+| `BOOTNODES` | Comma-separated Tempo execution bootnodes | pinned defaults |
 | `LOG_LEVEL` | Logging verbosity | `info` |
 | `SCRIPT_TAG` | Pin repo to git tag | (empty = latest) |
 
