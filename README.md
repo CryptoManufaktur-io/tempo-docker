@@ -19,10 +19,7 @@ cd tempo-docker
 cp default.env .env
 vim .env   # set DOMAIN, RPC_HOST, and WS_HOST as needed
 
-# One-time bootstrap: download the archive snapshot (this populates DATA_DIR)
-./tempod up download
-
-# Start the node
+# Start the node. First start downloads the archive snapshot when DATA_DIR is empty.
 ./tempod up -d
 
 # Tail logs
@@ -154,7 +151,7 @@ Exit codes:
 ├── ethd                    # Canonical CLI script
 ├── tempod                  # Symlink alias to ethd
 ├── scripts/
-│   └── check_sync.sh       # Sync checker (eth_syncing + eth_blockNumber)
+│   └── check_sync.sh       # Sync checker (chain ID, block lag, block hash)
 ├── default.env             # Default configuration
 ├── tempo.yml               # Main compose file (download + tempo services)
 ├── rpc-shared.yml          # Localhost port exposure overlay
