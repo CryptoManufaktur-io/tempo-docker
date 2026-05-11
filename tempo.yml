@@ -12,7 +12,7 @@ services:
     container_name: ${PROJECT_NAME}-download
     profiles: [init]
     volumes:
-      - ${DATA_DIR}:/root/.local/share/reth/tempo
+      - ${DATA_VOLUME:-tempo-data}:/root/.local/share/reth/tempo
     entrypoint:
       - /bin/bash
       - -ec
@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 10m
     volumes:
-      - ${DATA_DIR}:/root/.local/share/reth/tempo
+      - ${DATA_VOLUME:-tempo-data}:/root/.local/share/reth/tempo
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - NETWORK=${NETWORK:-mainnet}
@@ -110,3 +110,6 @@ services:
       options:
         max-size: "100m"
         max-file: "3"
+
+volumes:
+  tempo-data:
