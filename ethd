@@ -68,41 +68,42 @@ __should_bootstrap_snapshot() {
 }
 
 
-__data_dir_has_state() {
-  local __data_dir="$1"
-  if [ ! -d "${__data_dir}" ]; then
-    return 1
-  fi
-  if [ -f "${__data_dir}/.snapshot-restored" ] || [ -d "${__data_dir}/rocksdb" ]; then
-    return 0
-  fi
-  find "${__data_dir}" -mindepth 1 -maxdepth 1 ! -name "lost+found" -print -quit | grep -q .
+__data_volume_has_state() {
+# shellcheck disable=SC2016
+  __docompose --profile init run --rm --no-deps --entrypoint /bin/bash download -ec '
+    data=/root/.local/share/reth/tempo
+    test -f "${data}/.snapshot-restored" ||
+      test -d "${data}/rocksdb" ||
+      find "${data}" -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit | grep -q .
+  ' >/dev/null
+}
+
+
+__mark_data_volume_bootstrapped() {
+# shellcheck disable=SC2016
+  __docompose --profile init run --rm --no-deps --entrypoint /bin/bash download -ec '
+    touch /root/.local/share/reth/tempo/.snapshot-restored
+  ' >/dev/null
 }
 
 
 __bootstrap_snapshot_if_needed() {
-  local __data_dir __skip_bootstrap
+  local __skip_bootstrap
   __should_bootstrap_snapshot "$@" || return 0
-  __get_env_or_default "DATA_DIR" "__data_dir"
   __get_env_or_default "SKIP_SNAPSHOT_BOOTSTRAP" "__skip_bootstrap"
 
   if [[ "${__skip_bootstrap}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
     echo "Skipping Tempo snapshot bootstrap because SKIP_SNAPSHOT_BOOTSTRAP=${__skip_bootstrap}"
     return 0
   fi
-  if [ -f "${__data_dir}/.snapshot-restored" ]; then
-    return 0
-  fi
-  if __data_dir_has_state "${__data_dir}"; then
-    echo "Tempo data directory already has state; skipping snapshot bootstrap"
-    ${__as_owner} touch "${__data_dir}/.snapshot-restored" || true
+  if __data_volume_has_state; then
+    echo "Tempo data volume already has state; skipping snapshot bootstrap"
+    __mark_data_volume_bootstrapped
     return 0
   fi
 
-  echo "Tempo snapshot sentinel not found; running download profile before start"
+  echo "Tempo data volume is empty; running download profile before start"
   __docompose --profile init up download
-  ${__as_owner} mkdir -p "${__data_dir}"
-  ${__as_owner} touch "${__data_dir}/.snapshot-restored"
 }
 
 

@@ -19,7 +19,7 @@ cd tempo-docker
 cp default.env .env
 vim .env   # set DOMAIN, RPC_HOST, and WS_HOST as needed
 
-# Start the node. First start downloads the archive snapshot when DATA_DIR is empty.
+# Start the node. First start downloads the archive snapshot when DATA_VOLUME is empty.
 ./tempod up -d
 
 # Tail logs
@@ -86,13 +86,17 @@ Edit `.env` to customize your deployment. Key variables:
 | `CHAIN_ID` | Decimal chain ID | `4217` |
 | `NODE_DOCKER_REPO` | Docker image repository | `ghcr.io/tempoxyz/tempo` |
 | `NODE_DOCKER_TAG` | Docker image tag | `1.6.0` |
-| `DATA_DIR` | Data directory path | `./tempo` |
+| `DATA_VOLUME` | Docker volume for node state | `tempo-data` |
 | `SKIP_SNAPSHOT_BOOTSTRAP` | Skip automatic pre-start snapshot bootstrap | `false` |
 | `RPC_PORT` | HTTP RPC port | `8545` |
 | `WS_PORT` | WebSocket port | `8546` |
 | `P2P_PORT` | P2P host/container port | `30303` |
 | `LOG_LEVEL` | Logging verbosity | `info` |
 | `SCRIPT_TAG` | Pin repo to git tag | (empty = latest) |
+
+### Data Storage
+
+Node state is stored in a Compose project-prefixed Docker named volume by default, not in the repo checkout. With the production clone dir `tempo`, the default volume is `tempo_tempo-data`. Use `./tempod space` to inspect Docker volume usage.
 
 ### Compose File Overlays
 
@@ -155,8 +159,7 @@ Exit codes:
 ├── default.env             # Default configuration
 ├── tempo.yml               # Main compose file (download + tempo services)
 ├── rpc-shared.yml          # Localhost port exposure overlay
-├── ext-network.yml         # Traefik / Prometheus overlay
-└── tempo/                  # Node data (bind-mounted, git-ignored)
+└── ext-network.yml         # Traefik / Prometheus overlay
 ```
 
 ## Troubleshooting
