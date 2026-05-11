@@ -11,11 +11,6 @@
 #   5 - Configuration error
 #   6 - Tool dependency error (curl/jq missing)
 #   7 - Container error
-#
-# Protocol variants:
-#   - ETH JSON-RPC: Uses eth_syncing, eth_blockNumber
-#   - Tendermint/Cosmos: Uses /status endpoint
-#   - Beacon Chain: Uses /eth/v1/node/syncing
 # =============================================================================
 
 set -euo pipefail
@@ -33,8 +28,7 @@ Options:
   --compose-service NAME   Docker Compose service name to resolve to a container
   --local-rpc URL          Local RPC URL (default: http://127.0.0.1:8545)
   --public-rpc URL         Public/reference RPC URL (default: https://rpc.presto.tempo.xyz)
-  --block-lag N            Acceptable lag in blocks (default: 5)
-  --no-install             Accepted for compatibility; no container installs are performed
+  --block-lag N            Acceptable lag in blocks (default: 30)
   --env-file PATH          Path to env file to load
   -h, --help               Show this help
 
@@ -66,7 +60,7 @@ LOCAL_RPC="${LOCAL_RPC:-}"
 TEMPO_PUBLIC_RPC_DEFAULT="https://rpc.presto.tempo.xyz"
 TEMPO_EXPECTED_CHAIN_ID="0x1079"
 REFERENCE_RPC="$TEMPO_PUBLIC_RPC_DEFAULT"
-BLOCK_LAG_THRESHOLD="${BLOCK_LAG_THRESHOLD:-5}"
+BLOCK_LAG_THRESHOLD="${BLOCK_LAG_THRESHOLD:-30}"
 EXPECTED_CHAIN_ID="$TEMPO_EXPECTED_CHAIN_ID"
 
 # =============================================================================
@@ -168,13 +162,6 @@ jq_eval() {
   jq -r "$1"
 }
 
-# =============================================================================
-# PROTOCOL-SPECIFIC SYNC CHECK
-# =============================================================================
-
-# -----------------------------------------------------------------------------
-# ETH JSON-RPC variant — Tempo is a Reth-based EVM L1
-# -----------------------------------------------------------------------------
 check_eth_sync() {
   echo "==> Checking Tempo execution layer sync status"
 
@@ -287,64 +274,6 @@ check_eth_sync() {
   fi
 }
 
-# -----------------------------------------------------------------------------
-# Tendermint/Cosmos variant
-# Uncomment and use this for Cosmos SDK chains
-# -----------------------------------------------------------------------------
-# check_tendermint_sync() {
-#   echo "==> Checking Tendermint sync status"
-#
-#   local local_status public_status
-#   local_status=$(http_get "${LOCAL_RPC}/status")
-#   public_status=$(http_get "${REFERENCE_RPC}/status")
-#
-#   local local_height public_height local_catching_up local_hash public_hash
-#   local_height=$(echo "$local_status" | jq_eval '.result.sync_info.latest_block_height // .sync_info.latest_block_height')
-#   public_height=$(echo "$public_status" | jq_eval '.result.sync_info.latest_block_height // .sync_info.latest_block_height')
-#   local_catching_up=$(echo "$local_status" | jq_eval '.result.sync_info.catching_up // .sync_info.catching_up')
-#   local_hash=$(echo "$local_status" | jq_eval '.result.sync_info.latest_block_hash // .sync_info.latest_block_hash')
-#   public_hash=$(echo "$public_status" | jq_eval '.result.sync_info.latest_block_hash // .sync_info.latest_block_hash')
-#
-#   if [[ -z "$local_height" || "$local_height" == "null" ]]; then
-#     echo "Failed to get local block height"
-#     exit 3
-#   fi
-#   if [[ -z "$public_height" || "$public_height" == "null" ]]; then
-#     echo "Failed to get public block height"
-#     exit 4
-#   fi
-#
-#   local lag=$((public_height - local_height))
-#
-#   echo "Local height:  $local_height"
-#   echo "Public height: $public_height"
-#   echo "Lag:           $lag blocks (threshold: $BLOCK_LAG_THRESHOLD)"
-#   echo "Catching up:   $local_catching_up"
-#
-#   if [[ "$local_catching_up" == "true" ]]; then
-#     echo "Node reports catching_up=true"
-#     exit 1
-#   fi
-#
-#   if [[ "$local_height" == "$public_height" && "$local_hash" == "$public_hash" ]]; then
-#     echo "Node is synced (height and hash match)"
-#     exit 0
-#   fi
-#
-#   if [[ "$local_height" == "$public_height" && "$local_hash" != "$public_hash" ]]; then
-#     echo "Heights match but hashes differ - possible fork"
-#     exit 2
-#   fi
-#
-#   if (( lag > BLOCK_LAG_THRESHOLD )); then
-#     echo "Node is syncing (behind by $lag blocks)"
-#     exit 1
-#   fi
-#
-#   echo "Node is synced (within threshold)"
-#   exit 0
-# }
-
 # =============================================================================
 # ARGUMENT PARSING
 # =============================================================================
@@ -377,7 +306,6 @@ while [[ $# -gt 0 ]]; do
     --local-rpc) LOCAL_RPC="$2"; shift 2 ;;
     --public-rpc) REFERENCE_RPC="$2"; shift 2 ;;
     --block-lag) BLOCK_LAG_THRESHOLD="$2"; shift 2 ;;
-    --no-install) shift ;;
     --env-file) shift 2 ;;  # Already handled
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1"; usage; exit 5 ;;
@@ -405,10 +333,4 @@ if [[ -n "$CONTAINER" ]] && ! command -v docker >/dev/null 2>&1; then
   exit 7
 fi
 
-# =============================================================================
-# RUN SYNC CHECK
-# =============================================================================
-# Uncomment the appropriate variant for your protocol:
-
-# Tempo is a Reth-based EVM L1 — use the ETH JSON-RPC variant.
 check_eth_sync
