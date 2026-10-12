@@ -1,17 +1,14 @@
-# =============================================================================
-# Ext Network Overlay - Attach tempo to the external Traefik network
-# =============================================================================
-# Add :ext-network.yml to COMPOSE_FILE in .env to publish tempo via Traefik.
-# Traefik labels live in tempo.yml (matches 0g-docker / cmf chainlink family).
-# =============================================================================
-
-services:
-  tempo:
-    networks:
-      - default
-      - ext-network
+# External network configuration for Traefik / Prometheus integration
+# Usage: COMPOSE_FILE=tempo.yml:ext-network.yml in .env
+#
+# Make the external Traefik network the only network (the same pattern the other
+# *-docker repos use). The fleet Prometheus (docker service discovery) is attached
+# only to the Traefik network and keeps only the FIRST network of a container
+# (match_first_network). With a second, project-internal network (tempo_default) the
+# scrape address was an IP Prometheus cannot reach, so the target was always
+# up == 0 (context deadline exceeded).
 
 networks:
-  ext-network:
+  default:
+    name: ${DOCKER_EXT_NETWORK:-traefik_default}
     external: true
-    name: ${DOCKER_EXT_NETWORK}
